@@ -2,186 +2,101 @@ import { McpAgent } from "agents/mcp";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
-// 为高德API响应定义Zod schema (可选，但推荐)
-const AmapGeocodeResponse = z.object({
-	status: z.string(),
-	info: z.string(),
-	geocodes: z.array(z.any()).optional(),
-});
-
-const AmapReverseGeocodeResponse = z.object({
-    status: z.string(),
-    info: z.string(),
-    regeocode: z.any().optional(),
-});
-
-const AmapPoiSearchResponse = z.object({
-    status: z.string(),
-    info: z.string(),
-    count: z.string().optional(),
-    suggestion: z.any().optional(),
-    pois: z.array(z.any()).optional(),
-});
-
-const AmapRoutePlanningResponse = z.object({
-    status: z.string(),
-    info: z.string(),
-    route: z.any().optional(),
-});
-
-const AmapWeatherResponse = z.object({
-    status: z.string(),
-    info: z.string(),
-    lives: z.array(z.any()).optional(),
-    forecasts: z.array(z.any()).optional(),
-});
+// 为高德API响应定义Zod schema (这是一种最佳实践，能帮助我们避免很多错误)
+const AmapGeocodeResponse = z.object({ status: z.string(), info: z.string(), geocodes: z.array(z.any()).optional() });
+const AmapReverseGeocodeResponse = z.object({ status: z.string(), info: z.string(), regeocode: z.any().optional() });
+const AmapPoiSearchResponse = z.object({ status: z.string(), info: z.string(), pois: z.array(z.any()).optional() });
+const AmapRoutePlanningResponse = z.object({ status: z.string(), info: z.string(), route: z.any().optional() });
+const AmapWeatherResponse = z.object({ status: z.string(), info: z.string(), lives: z.array(z.any()).optional(), forecasts: z.array(z.any()).optional() });
 
 
 export class MyMCP extends McpAgent {
 	server = new McpServer({
 		name: "AMAP MCP Server",
-		identifier: "dev.workers.baize7815.gaodemap", // 保持唯一标识符
+		identifier: "dev.workers.baize7815.gaodemap", // 保持您的唯一标识符
 		version: "1.0.0",
 	});
 
 	async init() {
+		const getApiKey = (context: any): string | undefined => {
+			return context.env.AMAP_MAPS_API_KEY;
+		};
+		
 		// 地理编码工具 - 地址转坐标
-		this.server.tool(
-			"geocode",
-			{
-				address: z.string().describe("要查询的地址"),
-				city: z.string().optional().describe("城市名称（可选）"),
-			},
+		this.server.tool( "geocode", { address: z.string().describe("要查询的地址"), city: z.string().optional().describe("城市名称（可选）") },
 			async ({ address, city }, context) => {
-				const apiKey = context.env.AMAP_MAPS_API_KEY;
-				if (!apiKey) {
-					return { content: [{ type: "text", text: "错误：未设置高德地图API密钥" }] };
-				}
+				const apiKey = getApiKey(context);
+				if (!apiKey) return { content: [{ type: "text", text: "错误：未设置高德地图API密钥" }] };
 				const params = new URLSearchParams({ key: apiKey, address });
 				if (city) params.append('city', city);
-
 				const response = await fetch(`https://restapi.amap.com/v3/geocode/geo?${params}`);
 				const data = await response.json();
-                const parsed = AmapGeocodeResponse.parse(data);
-
-				if (parsed.status === "1" && parsed.geocodes && parsed.geocodes.length > 0) {
-					const result = parsed.geocodes[0];
-					return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+				if (data.status === "1" && data.geocodes?.length > 0) {
+					return { content: [{ type: "text", text: JSON.stringify(data.geocodes[0], null, 2) }] };
 				}
-				return { content: [{ type: "text", text: `地理编码失败：${parsed.info}` }] };
+				return { content: [{ type: "text", text: `地理编码失败：${data.info}` }] };
 			}
 		);
 
 		// 逆地理编码工具 - 坐标转地址
-		this.server.tool(
-			"reverse_geocode",
-			{
-				longitude: z.number().describe("经度"),
-				latitude: z.number().describe("纬度"),
-			},
+		this.server.tool( "reverse_geocode", { longitude: z.number().describe("经度"), latitude: z.number().describe("纬度") },
 			async ({ longitude, latitude }, context) => {
-				const apiKey = context.env.AMAP_MAPS_API_KEY;
-				if (!apiKey) {
-					return { content: [{ type: "text", text: "错误：未设置高德地图API密钥" }] };
-				}
-				const location = `${longitude},${latitude}`;
-				const params = new URLSearchParams({ key: apiKey, location, extensions: "all" });
-
+				const apiKey = getApiKey(context);
+				if (!apiKey) return { content: [{ type: "text", text: "错误：未设置高德地图API密钥" }] };
+				const params = new URLSearchParams({ key: apiKey, location: `${longitude},${latitude}`, extensions: "all" });
 				const response = await fetch(`https://restapi.amap.com/v3/geocode/regeo?${params}`);
 				const data = await response.json();
-                const parsed = AmapReverseGeocodeResponse.parse(data);
-
-				if (parsed.status === "1" && parsed.regeocode) {
-					return { content: [{ type: "text", text: JSON.stringify(parsed.regeocode, null, 2) }] };
+				if (data.status === "1" && data.regeocode) {
+					return { content: [{ type: "text", text: JSON.stringify(data.regeocode, null, 2) }] };
 				}
-				return { content: [{ type: "text", text: `逆地理编码失败：${parsed.info}` }] };
+				return { content: [{ type: "text", text: `逆地理编码失败：${data.info}` }] };
 			}
 		);
 
 		// POI搜索工具
-		this.server.tool(
-			"poi_search",
-			{
-				keywords: z.string().describe("搜索关键词"),
-				city: z.string().optional().describe("城市名称"),
-				types: z.string().optional().describe("POI类型编码"),
-				page: z.number().default(1).describe("页码"),
-				offset: z.number().default(10).describe("每页记录数"),
-			},
+		this.server.tool( "poi_search", { keywords: z.string().describe("搜索关键词"), city: z.string().optional().describe("城市名称"), types: z.string().optional().describe("POI类型编码"), page: z.number().default(1), offset: z.number().default(10) },
 			async ({ keywords, city, types, page, offset }, context) => {
-				const apiKey = context.env.AMAP_MAPS_API_KEY;
-				if (!apiKey) {
-					return { content: [{ type: "text", text: "错误：未设置高德地图API密钥" }] };
-				}
-				const params = new URLSearchParams({
-					key: apiKey,
-					keywords,
-					page: page.toString(),
-					offset: offset.toString(),
-					extensions: "all"
-				});
+				const apiKey = getApiKey(context);
+				if (!apiKey) return { content: [{ type: "text", text: "错误：未设置高德地图API密钥" }] };
+				const params = new URLSearchParams({ key: apiKey, keywords, page: page.toString(), offset: offset.toString(), extensions: "all" });
 				if (city) params.append('city', city);
 				if (types) params.append('types', types);
-
 				const response = await fetch(`https://restapi.amap.com/v3/place/text?${params}`);
 				const data = await response.json();
-                const parsed = AmapPoiSearchResponse.parse(data);
-
-				if (parsed.status === "1" && parsed.pois) {
-					return { content: [{ type: "text", text: JSON.stringify(parsed, null, 2) }] };
+				if (data.status === "1" && data.pois) {
+					return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
 				}
-				return { content: [{ type: "text", text: `POI搜索失败：${parsed.info}` }] };
+				return { content: [{ type: "text", text: `POI搜索失败：${data.info}` }] };
 			}
 		);
 
 		// 路径规划工具
-		this.server.tool(
-			"route_planning",
-			{
-				origin: z.string().describe("起点坐标 (经度,纬度)"),
-				destination: z.string().describe("终点坐标 (经度,纬度)"),
-				strategy: z.string().default("1").describe("路径规划策略 (0-10)"),
-			},
+		this.server.tool( "route_planning", { origin: z.string().describe("起点坐标 (经度,纬度)"), destination: z.string().describe("终点坐标 (经度,纬度)"), strategy: z.string().default("1").describe("路径规划策略 (0-10)") },
 			async ({ origin, destination, strategy }, context) => {
-				const apiKey = context.env.AMAP_MAPS_API_KEY;
-				if (!apiKey) {
-					return { content: [{ type: "text", text: "错误：未设置高德地图API密钥" }] };
-				}
+				const apiKey = getApiKey(context);
+				if (!apiKey) return { content: [{ type: "text", text: "错误：未设置高德地图API密钥" }] };
 				const params = new URLSearchParams({ key: apiKey, origin, destination, strategy, extensions: "all" });
-
 				const response = await fetch(`https://restapi.amap.com/v3/direction/driving?${params}`);
 				const data = await response.json();
-                const parsed = AmapRoutePlanningResponse.parse(data);
-
-				if (parsed.status === "1" && parsed.route) {
-					return { content: [{ type: "text", text: JSON.stringify(parsed.route, null, 2) }] };
+				if (data.status === "1" && data.route?.paths?.length > 0) {
+					return { content: [{ type: "text", text: JSON.stringify(data.route, null, 2) }] };
 				}
-				return { content: [{ type: "text", text: `路径规划失败：${parsed.info}` }] };
+				return { content: [{ type: "text", text: `路径规划失败：${data.info}` }] };
 			}
 		);
 
 		// 天气查询工具
-		this.server.tool(
-			"weather",
-			{
-				city: z.string().describe("城市名称或adcode"),
-				extensions: z.enum(["base", "all"]).default("base").describe("返回结果控制"),
-			},
+		this.server.tool( "weather", { city: z.string().describe("城市名称或adcode"), extensions: z.enum(["base", "all"]).default("base") },
 			async ({ city, extensions }, context) => {
-				const apiKey = context.env.AMAP_MAPS_API_KEY;
-				if (!apiKey) {
-					return { content: [{ type: "text", text: "错误：未设置高德地图API密钥" }] };
-				}
+				const apiKey = getApiKey(context);
+				if (!apiKey) return { content: [{ type: "text", text: "错误：未设置高德地图API密钥" }] };
 				const params = new URLSearchParams({ key: apiKey, city, extensions });
-
 				const response = await fetch(`https://restapi.amap.com/v3/weather/weatherInfo?${params}`);
 				const data = await response.json();
-                const parsed = AmapWeatherResponse.parse(data);
-
-				if (parsed.status === "1") {
-					return { content: [{ type: "text", text: JSON.stringify(parsed, null, 2) }] };
+				if (data.status === "1") {
+					return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
 				}
-				return { content: [{ type: "text", text: `天气查询失败：${parsed.info}` }] };
+				return { content: [{ type: "text", text: `天气查询失败：${data.info}` }] };
 			}
 		);
 	}
@@ -191,7 +106,6 @@ export default {
 	async fetch(request: Request, env: any, ctx: ExecutionContext): Promise<Response> {
 		const url = new URL(request.url);
 
-		// 实例化 MCP 服务
 		const mcp = MyMCP.serve("/mcp");
 		const sse = MyMCP.serveSSE("/sse");
 
