@@ -17,7 +17,7 @@ export class MyMCP extends McpAgent {
 
 	async init() {
 		// 这是一个辅助函数，用于安全地获取API Key
-		const getApiKey = (context: { env: Env }): string | undefined => {
+		const getApiKey = (context: { env: Env }): string | null => {
 			return context.env.AMAP_MAPS_API_KEY;
 		};
 
@@ -67,6 +67,66 @@ export class MyMCP extends McpAgent {
 				} catch (e) { return handleError(e); }
 			}
 		);
+        
+        this.server.tool( "poi_search", { keywords: z.string().describe("搜索关键词"), city: z.string().optional().describe("城市"), types: z.string().optional().describe("POI类型") },
+			async ({ keywords, city, types }, context) => {
+				try {
+					const apiKey = getApiKey(context as { env: Env });
+					if (!apiKey) return { content: [{ type: "text", text: "错误: AMAP_MAPS_API_KEY 未配置" }] };
+					
+					const params = new URLSearchParams({ key: apiKey, keywords, extensions: "all" });
+					if (city) params.append('city', city);
+					if (types) params.append('types', types);
+
+					const response = await fetch(`https://restapi.amap.com/v3/place/text?${params}`);
+					const data = await response.json();
+
+					if (data.status === "1" && data.pois) {
+						return { content: [{ type: "text", text: `找到 ${data.count} 个结果: \n${JSON.stringify(data.pois, null, 2)}` }] };
+					}
+					return { content: [{ type: "text", text: `POI搜索失败：${data.info}` }] };
+				} catch (e) { return handleError(e); }
+			}
+		);
+
+		this.server.tool( "route_planning", { origin: z.string().describe("起点坐标(经度,纬度)"), destination: z.string().describe("终点坐标(经度,纬度)") },
+			async ({ origin, destination }, context) => {
+				try {
+					const apiKey = getApiKey(context as { env: Env });
+					if (!apiKey) return { content: [{ type: "text", text: "错误: AMAP_MAPS_API_KEY 未配置" }] };
+					
+					const params = new URLSearchParams({ key: apiKey, origin, destination, extensions: "all" });
+					
+					const response = await fetch(`https://restapi.amap.com/v3/direction/driving?${params}`);
+					const data = await response.json();
+
+					if (data.status === "1" && data.route?.paths?.length > 0) {
+						return { content: [{ type: "text", text: `路径规划成功: \n${JSON.stringify(data.route.paths, null, 2)}` }] };
+					}
+					return { content: [{ type: "text", text: `路径规划失败：${data.info}` }] };
+				} catch (e) { return handleError(e); }
+			}
+		);
+
+		this.server.tool( "weather", { city: z.string().describe("城市名或adcode"), extensions: z.enum(["base", "all"]).default("base").describe("base:实况天气, all:预报天气") },
+			async ({ city, extensions }, context) => {
+				try {
+					const apiKey = getApiKey(context as { env: Env });
+					if (!apiKey) return { content: [{ type: "text", text: "错误: AMAP_MAPS_API_KEY 未配置" }] };
+					
+					const params = new URLSearchParams({ key: apiKey, city, extensions });
+					
+					const response = await fetch(`https://restapi.amap.com/v3/weather/weatherInfo?${params}`);
+					const data = await response.json();
+
+					if (data.status === "1") {
+						const result = extensions === 'base' ? data.lives : data.forecasts;
+						return { content: [{ type: "text", text: `天气查询成功: \n${JSON.stringify(result, null, 2)}` }] };
+					}
+					return { content: [{ type: "text", text: `天气查询失败：${data.info}` }] };
+				} catch (e) { return handleError(e); }
+			}
+		);
 	}
 }
 
@@ -77,6 +137,7 @@ export default {
 		// 正确的、简化的处理方式
 		if (url.pathname.startsWith("/mcp")) {
 			// 将所有 /mcp 的请求（无论是GET还是POST）都交给 MCP 服务来处理
+			// 它内部会自动响应 GET manifest 请求和 POST tool_calls 请求
 			return MyMCP.serve("/mcp").fetch(request, env, ctx);
 		}
 
