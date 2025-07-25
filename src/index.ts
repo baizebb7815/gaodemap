@@ -17,7 +17,7 @@ export class MyMCP extends McpAgent {
 
 	async init() {
 		// 这是一个辅助函数，用于安全地获取API Key
-		const getApiKey = (context: { env: Env }): string | null => {
+		const getApiKey = (context: { env: Env }): string | undefined => {
 			return context.env.AMAP_MAPS_API_KEY;
 		};
 
