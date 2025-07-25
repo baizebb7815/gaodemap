@@ -37,7 +37,6 @@ const AmapWeatherResponse = z.object({
 export class MyMCP extends McpAgent {
 	server = new McpServer({
 		name: "Amap Tools",
-        // 添加这个 identifier 字段来修复 Manifest 错误
 		identifier: "dev.workers.baize7815.gaodemap",
 		version: "1.0.0",
 	});
@@ -131,24 +130,29 @@ export class MyMCP extends McpAgent {
 				}
 			}
 		);
-
-		// 您可以在此处添加其他高德地图工具，例如逆地理编码、路径规划等。
 	}
 }
 
 export default {
 	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-        // 确保您的环境中已设置AMAP_MAPS_API_KEY
         const workerEnv = { ...env };
-
 		const url = new URL(request.url);
 
-		if (url.pathname === "/sse" || url.pathname === "/sse/message") {
-			return MyMCP.serveSSE("/sse").fetch(request, workerEnv, ctx);
+		// 实例化 MCP 服务
+		const mcp = MyMCP.serve("/mcp");
+		const sse = MyMCP.serveSSE("/sse");
+
+		if (url.pathname.startsWith("/sse")) {
+			return sse.fetch(request, workerEnv, ctx);
 		}
 
-		if (url.pathname === "/mcp") {
-			return MyMCP.serve("/mcp").fetch(request, workerEnv, ctx);
+		if (url.pathname.startsWith("/mcp")) {
+			// 如果是 GET 请求，就返回服务器的 Manifest（工具清单）
+			if (request.method === "GET") {
+				return mcp.manifest(request, workerEnv, ctx);
+			}
+			// 其他方法（如 POST）正常处理
+			return mcp.fetch(request, workerEnv, ctx);
 		}
 
 		return new Response("Not found", { status: 404 });
