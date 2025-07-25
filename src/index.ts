@@ -2,12 +2,19 @@ import { McpAgent } from "agents/mcp";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
+// 定义环境变量接口
+interface Env {
+	AMAP_MAPS_API_KEY?: string;
+}
+
 // Define our MCP agent with AMAP tools
 export class MyMCP extends McpAgent {
 	server = new McpServer({
 		name: "AMAP MCP Server",
 		version: "1.0.0",
 	});
+
+	env?: Env; // 添加环境变量属性
 
 	async init() {
 		// 地理编码工具 - 地址转坐标
@@ -19,7 +26,7 @@ export class MyMCP extends McpAgent {
 			},
 			async ({ address, city }) => {
 				try {
-					const apiKey = process.env.AMAP_MAPS_API_KEY;
+					const apiKey = this.env?.AMAP_MAPS_API_KEY;
 					if (!apiKey) {
 						return {
 							content: [{
@@ -81,7 +88,7 @@ export class MyMCP extends McpAgent {
 			},
 			async ({ longitude, latitude }) => {
 				try {
-					const apiKey = process.env.AMAP_MAPS_API_KEY;
+					const apiKey = this.env?.AMAP_MAPS_API_KEY;
 					if (!apiKey) {
 						return {
 							content: [{
@@ -148,7 +155,7 @@ export class MyMCP extends McpAgent {
 			},
 			async ({ keywords, city, types, page, offset }) => {
 				try {
-					const apiKey = process.env.AMAP_MAPS_API_KEY;
+					const apiKey = this.env?.AMAP_MAPS_API_KEY;
 					if (!apiKey) {
 						return {
 							content: [{
@@ -222,7 +229,7 @@ export class MyMCP extends McpAgent {
 			},
 			async ({ origin, destination, strategy }) => {
 				try {
-					const apiKey = process.env.AMAP_MAPS_API_KEY;
+					const apiKey = this.env?.AMAP_MAPS_API_KEY;
 					if (!apiKey) {
 						return {
 							content: [{
@@ -291,7 +298,7 @@ export class MyMCP extends McpAgent {
 			},
 			async ({ city, extensions }) => {
 				try {
-					const apiKey = process.env.AMAP_MAPS_API_KEY;
+					const apiKey = this.env?.AMAP_MAPS_API_KEY;
 					if (!apiKey) {
 						return {
 							content: [{
@@ -349,8 +356,15 @@ export default {
 	fetch(request: Request, env: Env, ctx: ExecutionContext) {
 		const url = new URL(request.url);
 
-		// Streamable HTTP endpoint
+		// Streamable HTTP endpoint - 支持 POST 和 GET 方法
 		if (url.pathname === "/mcp" || url.pathname === "/") {
+			// 设置环境变量以供 MCP 工具使用
+			if (env.AMAP_MAPS_API_KEY) {
+				// 在 Cloudflare Workers 中，我们需要直接传递环境变量
+				const mcpInstance = new MyMCP();
+				mcpInstance.env = env; // 将环境变量传递给 MCP 实例
+				return mcpInstance.serve("/mcp").fetch(request, env, ctx);
+			}
 			return MyMCP.serve("/mcp").fetch(request, env, ctx);
 		}
 
